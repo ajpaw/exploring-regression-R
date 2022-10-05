@@ -1,0 +1,376 @@
+---
+title: "Linear Regression Case Study"
+author: "Arjun Pawar"
+date: "10/04/2022"
+output: html_document
+---
+```{r SetUp, echo=TRUE}
+setwd ("/Users/arjun/Documents/Data course")
+require("readxl")
+require("Hmisc")
+require("dplyr")
+```
+
+Data Cleaning & Preparation
+
+```{r, echo=TRUE}
+df <- read_excel("Linear Regression Case.xlsx", sheet = "customer_dbase")
+describe (df)
+ 
+mystats <- function(x){
+  
+  n = length(x)
+  nmiss = sum(is.na(x))
+  nmiss_pct = mean(is.na(x))
+  sum = sum(x, na.rm=T)
+  mean = mean(x, na.rm=T)
+  median = quantile(x, p=0.5, na.rm=T)
+  std = sd(x, na.rm=T)
+  var = var(x, na.rm=T)
+  range = max(x, na.rm=T)-min(x, na.rm=T)
+  pctl = quantile(x, p=c(0, 0.01, 0.05,0.1,0.25,0.5, 0.75,0.9,0.95,0.99,1), na.rm=T)
+  return(c(N=n, Nmiss =nmiss, Nmiss_pct = nmiss_pct, sum=sum, avg=mean, median=median, std=std, var=var, range=range, pctl=pctl))
+}
+```
+
+Treating outliers for the numerical features
+
+```{r, echo=TRUE}
+numeric_features = names(df)[sapply(df, FUN=is.numeric)]
+summary_stats = t(apply(df[numeric_features], 2, FUN = mystats))
+write.csv(summary_stats, file = "stats.csv")
+
+outlier_treat <- function(x)
+{
+  UC1 = quantile(x, p=0.99,na.rm=T)
+  LC1 = quantile(x, p=0.01,na.rm=T)
+  x=ifelse(x>UC1, UC1, x)
+  x=ifelse(x<LC1, LC1, x)
+  return(x)
+}
+ 
+outlier_treated_df = data.frame(apply(df[numeric_features], 2, 
+                                      FUN=outlier_treat))
+
+summary_stats1 = t(apply(outlier_treated_df, 2, FUN=mystats))
+
+colnames(df)[!(colnames(df) %in% colnames(outlier_treated_df))]  
+```
+
+Finding features with missing values
+
+```{r, echo=TRUE}
+#MISSING VALUE TREATMENT
+
+# The features with missing values are:
+summary_df = data.frame(summary_stats1) 
+misscols = summary_df[summary_df$Nmiss_pct > 0,]
+rownames(misscols)
+
+#These are the features with missing values (15 total)
+```
+
+Some features were treated with median value imputation
+
+```{r , echo=TRUE}
+#Treating some of the numeric variables with median value imputation
+
+outlier_treated_df$townsize[is.na(outlier_treated_df$townsize)] = 
+  round(median(outlier_treated_df$townsize, na.rm = T))
+
+outlier_treated_df$cardten[is.na(outlier_treated_df$cardten)] = 
+  round(median(outlier_treated_df$cardten, na.rm = T))
+
+outlier_treated_df$commutetime[is.na(outlier_treated_df$commutetime)] = 
+  round(median(outlier_treated_df$commutetime, na.rm = T))
+
+outlier_treated_df$longten[is.na(outlier_treated_df$longten)] = 
+  (median(outlier_treated_df$longten, na.rm = T))
+
+
+summary_stats1 = t(apply(outlier_treated_df, 2, FUN=mystats))
+summary_df = data.frame(summary_stats1) 
+misscols = summary_df[summary_df$Nmiss_pct > 0,]
+rownames(misscols)
+
+#Checking that only 11 features have missing values now
+```
+
+Treating logarithmic features with missing values.\
+
+Using strategy of transforming a variable x into logarithmic by taking ln(x+1)
+instead of ln(x) as x can have 0 values.
+ 
+ 
+```{r, echo=TRUE}
+#NOW ONLY LOGARITHMIC VARIABLES ARE LEFT TO TREAT
+
+
+lncols_to_change =  rownames  (misscols)
+ 
+ln_cleaning = function (x)
+{
+   x <- ifelse(is.na(x), 0 , log(exp(x)+1))
+}
+
+updatedcols = data.frame(apply(outlier_treated_df[lncols_to_change], 2, FUN=ln_cleaning))
+
+outlier_treated_df$lncardmon = updatedcols$lncardmon
+outlier_treated_df$lncreddebt = updatedcols$lncreddebt
+outlier_treated_df$lnothdebt = updatedcols$lnothdebt
+outlier_treated_df$lnlongten = updatedcols$lnlongten
+outlier_treated_df$lntollmon = updatedcols$lntollmon
+outlier_treated_df$lntollten = updatedcols$lntollten
+outlier_treated_df$lnequipmon = updatedcols$lnequipmon
+outlier_treated_df$lnequipten = updatedcols$lnequipten
+outlier_treated_df$lncardten = updatedcols$lncardten
+outlier_treated_df$lnwiremon = updatedcols$lnwiremon
+outlier_treated_df$lnwireten = updatedcols$lnwireten
+ 
+#Checking that 0 features have missing values now
+summary_stats1 = t(apply(outlier_treated_df, 2, FUN=mystats))
+summary_df = data.frame(summary_stats1) 
+misscols = summary_df[summary_df$Nmiss_pct > 0,]
+rownames(misscols)
+
+#All numeric values have thus been cleaned
+```
+
+All numeric values have thus been cleaned.\
+Now looking at the categorical variables.
+
+```{r, echo=TRUE}
+#Finally, we convert the birth-month to a numeric factor
+
+outlier_treated_df$monthno = match(df$birthmonth ,month.name)
+```
+
+Preparing the response variable Y as asked by business objective:
+
+```{r, echo=TRUE}
+#Constructing our Y variable (what we need to predict)
+outlier_treated_df$TotalSpend = outlier_treated_df$cardspent+
+                              outlier_treated_df$card2spent
+
+finaldf = outlier_treated_df
+
+#Removing the constituent components of our Y variable from dataset
+
+finaldf$cardspent = NULL
+finaldf$card2spent = NULL
+
+```
+ 
+ This finaldf has 130 features as the CustID was removed from data (not needed)
+ Birthmonth was added to the dataframe by converting it to numeric
+ 2 columns were replaced by 1 (TotalSpend)\
+ 
+ Now checking distribution of this response variable.
+ 
+```{r, echo=TRUE}
+ 
+YVarHist <- ggplot(data = finaldf) + aes(TotalSpend) +
+  geom_histogram(bins = 13,fill = "skyblue1",color = "black") + 
+  theme_bw() 
+plot(YVarHist)  
+
+# convert TotalSpend to ln TotalSpend  
+finaldf$ln_spend <- log(finaldf$TotalSpend)
+
+ 
+YVarHist <- ggplot(data = finaldf) + aes(ln_spend) +
+  geom_histogram(bins = 13,fill = "skyblue1",color = "black") + 
+  theme_bw()
+plot(YVarHist)
+
+ 
+#This distribution is more 'normal'
+
+finaldf2 = finaldf
+finaldf2$TotalSpend = NULL
+
+#Our new y variable is now ln_spend
+```
+
+The response variable is now transformed logarithmically. \
+
+Now checking correlation between predictor variables:
+```{r, echo=TRUE}
+cor_mat<-data.frame(cor(finaldf2))
+write.csv(cor_mat, "cor_mat.csv")
+```
+
+Analysis of correlation matrix\
+  
+Observation 1 - Some of the variables have also been 'binned' so the binned feature has high correlation with the actual variable,\
+
+These include: age and agecat; ed and edcat; employ and empcat; income and inccat;
+spoused and spousedcat; address and	addresscat; carvalue and carcatvalue;
+commute and	commutecat; cardtenure and cardtenurecat;card2tenure and	card2tenurecat;\
+   
+Observation 2 - The log-transformed variables are obviously in high corrrelation
+with the original-state variables. Only one of these needs to be kept.
+We need to drop 1 feature from each pair wrt these two observations
+  
+
+```{r, echo=TRUE}
+# Removing those variables which already have a corresponding binned feature
+
+finaldf2$age = NULL
+finaldf2$ed = NULL
+finaldf2$employ = NULL
+finaldf2$income = NULL
+finaldf2$spoused = NULL
+finaldf2$address = NULL
+finaldf2$carvalue = NULL
+finaldf2$commute = NULL
+finaldf2$cardtenure = NULL
+finaldf2$card2tenure = NULL
+
+# Removing those variables which already have a corresponding log-transformed feature
+
+finaldf2$cardmon = NULL
+finaldf2$creddebt = NULL
+finaldf2$othdebt = NULL
+finaldf2$longten =  NULL
+finaldf2$tollmon =  NULL
+finaldf2$tollten =  NULL
+finaldf2$equipmon =  NULL
+finaldf2$equipten =  NULL
+finaldf2$cardten =  NULL
+finaldf2$wiremon =  NULL
+finaldf2$wireten =  NULL
+finaldf2$longmon =  NULL
+
+cor_mat2<-data.frame(cor(finaldf2))
+write.csv(cor_mat2, "cor_mat_updated.csv")
+```
+
+Upon analysis of this updated correlation matrix, we realise that number of
+freshwater fish is strongly correlated to total pets as total pets is defined using freshwater fish. So we will get rid of freshwater fish.
+
+```{r, echo=TRUE}
+finaldf2$pets_freshfish  =  NULL
+
+# The dataframe is now clean and ready for modelling.
+```
+
+The dataframe is now clean and ready for modelling.
+
+Dividing the dataset:
+
+```{r, echo=TRUE}
+# Dividing the dataset into train & test
+
+rows_in_train <- sample(1:nrow(finaldf2), floor (nrow(finaldf2)*0.7) )
+
+train <- finaldf2[rows_in_train,]
+test  <- finaldf2[-rows_in_train,]
+
+nrow(finaldf2)
+nrow(train)
+nrow(test)
+```
+
+Training process
+
+```{r, echo=TRUE}
+# Training the model
+ 
+fit<- lm(ln_spend~., data=train)
+summary(fit) #0.6485
+```
+
+Inference\
+Features to consider: region, gender, lninc, addresscat, commutewalk, card,
+cardtenurecat, card2, carditems, card2items, churn, lnlongmon, internet, response_03, owngame \
+
+Now performing some manual trial-and-error:
+
+```{r, echo=TRUE}
+
+# Upon manually reducing some features we arrive at the following:
+fit1 <- lm(ln_spend~ gender + lninc + addresscat + commutewalk + card
+             + card2 + carditems + card2items +
+             internet + response_03 
+           +owngame, data=train)
+summary(fit1) 
+```
+
+---DETAILS OF THIS MODEL---\
+Residual standard error: 0.3821 on 3488 degrees of freedom\
+Multiple R-squared:  0.6513,	Adjusted R-squared:  0.6502\
+F-statistic: 592.4 on 11 and 3488 DF,  p-value: < 2.2e-16\
+
+Now evaluating performance on the train model (as a preliminary test step)
+```{r, echo=TRUE}
+dev1<-data.frame(cbind(train, predicted_ln_spend = predict(fit1, newdata=train), 
+                       predicted_spend = exp(predict(fit1, newdata=train))))
+
+# This has the predicted total spend alongside actual spend on the TRAIN (to evaluate)
+```
+
+Now predicting values on the test model 
+
+```{r, echo=TRUE}
+val1<-data.frame(cbind(test,predicted_ln_spend=predict(fit1, newdata=test), 
+                       predicted_spend = exp(predict(fit1, newdata=test))))
+
+# This has the predicted total spend alongside actual spend on the TEST (unseen)
+```
+
+Analyzing accuracy metrics
+
+```{r, echo=TRUE}
+#MAPE
+dev_mape = mean(abs(dev1$ln_spend - dev1$predicted_ln_spend)/dev1$ln_spend)
+val_mape = mean(abs(val1$ln_spend - val1$predicted_ln_spend)/val1$ln_spend)
+dev_mape
+val_mape
+
+#RMSE
+rmse_in_train_evaluation = sqrt(mean((dev1$ln_spend - dev1$predicted_ln_spend)**2))
+rmse_in_test_perform = sqrt(mean((val1$ln_spend - val1$predicted_ln_spend)**2))
+rmse_in_train_evaluation
+rmse_in_test_perform
+
+#Correlations
+corr_in_train = cor(dev1$ln_spend, dev1$predicted_ln_spend)
+corr_in_test = cor(val1$ln_spend, val1$predicted_ln_spend)
+corr_in_train
+corr_in_test
+```
+
+We see from above that the accuracy metrics are giving us values which are close enough for the training and testing data set. There is no notable difference between the two which means our model has similar performance in unseen scenarios too. The test accuracy metrics are always slightly lower than train accuracy metrics which is a good outcome. 
+
+```{r, echo=TRUE}
+summary(fit1)
+```
+
+Ranked in importance, the notable predictors affecting total spend of users are: \
+
+(***) - very important\
+lninc, 
+card, 
+card2items, 
+carditems,
+card2,
+gender, \
+
+(**) - moderately important\
+addresscat, 
+internet, \
+
+(*) - mildly important\ 
+response_03,
+commutewalk,
+owngame. \
+
+Currently, the model that we have is dependent on the above predictors and
+the respective beta values to calculate ln(TotalSpend) are found as follows:
+
+```{r, echo=TRUE}
+coefficients(fit1)
+```
+
+---END OF MODELLING PROJECT ---
